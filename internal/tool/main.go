@@ -1,7 +1,7 @@
 // Command tool runs the workshop commands behind the Makefile.
 //
-//	go run ./internal/tool check <n>            test lesson n
-//	go run ./internal/tool hint <n>             a hint for the first failing test
+//	go run ./internal/tool check <func>   test the lesson of func, func first
+//	go run ./internal/tool hint <func>    a hint for the first failing test of func
 package main
 
 import (
@@ -48,17 +48,14 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: tool check <1-5|func> | hint <1-5|func>")
-	fmt.Fprintln(os.Stderr, "From make: make check ship, or make check 3")
+	fmt.Fprintln(os.Stderr, "usage: tool check <func> | hint <func>")
+	fmt.Fprintln(os.Stderr, "From make: make check ship")
 	os.Exit(2)
 }
 
-// sel is how the learner chose the lesson, e.g. "Fetch" or "3", to repeat
-// it in the commands that we suggest.
-var sel string
-
-// focus is the function the learner named with F, or "".
-var focus string
+// focus is the function the learner named, e.g. "Fetch", and sel is the
+// same in lower case, to repeat it in the commands that we suggest.
+var focus, sel string
 
 // testsFunc reports whether test name tests function fn: TestFetch,
 // TestFetch_TooSlow and TestStretch_Fetch all test Fetch.
@@ -67,11 +64,8 @@ func testsFunc(name, fn string) bool {
 	return rest == fn || strings.HasPrefix(rest, fn+"_")
 }
 
-// focused returns the results for the focus function, or all of them.
+// focused returns the results for the focus function.
 func focused(rs []result) []result {
-	if focus == "" {
-		return rs
-	}
 	var out []result
 	for _, r := range rs {
 		if testsFunc(r.name, focus) {
@@ -82,33 +76,47 @@ func focused(rs []result) []result {
 }
 
 // watch suggests make run for the function that the learner named, when it
-// has a scene. A lesson number, or a function without a scene, gets nothing.
+// has a scene.
 func watch() string {
-	if focus == "" {
-		return ""
-	}
 	if f, ok := catalog.Find(focus); ok && f.Part != "" {
 		return " Watch it work: make run " + strings.ToLower(f.Name)
 	}
 	return ""
 }
 
-// lessonArg reads the lesson from the arguments: a number, or the name of
-// a function in it.
+// lessonArg reads the function from the arguments, and returns its lesson.
 func lessonArg() int {
 	if len(os.Args) < 3 {
 		usage()
 	}
-	n, f, err := catalog.Parse(os.Args[2])
+	f, err := catalog.Parse(os.Args[1], os.Args[2])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
-	sel = strconv.Itoa(n)
-	if f.Name != "" {
-		sel, focus = strings.ToLower(f.Name), f.Name
+	focus, sel = f.Name, strings.ToLower(f.Name)
+	return f.Lesson
+}
+
+// failing returns the other functions of lesson n with a failing test:
+// main exercises and stretch exercises apart.
+func failing(n int, rs []result) (main, stretchFuncs []string) {
+	for _, f := range catalog.Funcs {
+		if f.Lesson != n || f.Name == focus {
+			continue
+		}
+		for _, r := range rs {
+			if testsFunc(r.name, f.Name) && !r.ok {
+				if r.isStretch() {
+					stretchFuncs = append(stretchFuncs, f.Name)
+				} else {
+					main = append(main, f.Name)
+				}
+				break
+			}
+		}
 	}
-	return n
+	return main, stretchFuncs
 }
 
 func pkg(n int) string { return fmt.Sprintf("./lessons/lesson%d", n) }
@@ -188,7 +196,6 @@ func check(n int) error {
 		fmt.Print(buildOut)
 		return fmt.Errorf("\nYour code does not compile yet. Fix the error above, then run make check %s again", sel)
 	}
-	mainOK, stretchOK, hasStretch := true, true, false
 	for _, r := range rs {
 		mark := "✓"
 		if !r.ok {
@@ -196,39 +203,28 @@ func check(n int) error {
 		}
 		note := ""
 		if r.isStretch() {
-			hasStretch, note = true, "   (stretch: if you have time)"
-			stretchOK = stretchOK && r.ok
-		} else {
-			mainOK = mainOK && r.ok
+			note = "   (stretch: if you have time)"
 		}
-		if focus != "" && !testsFunc(r.name, focus) {
-			fmt.Println(dimText(fmt.Sprintf("  %s %s%s", mark, r.name, note)))
-			continue
+		line := fmt.Sprintf("  %s %s%s", mark, r.name, note)
+		if !testsFunc(r.name, focus) {
+			line = dimText(line)
 		}
-		fmt.Printf("  %s %s%s\n", mark, r.name, note)
+		fmt.Println(line)
 	}
-	if fr := focused(rs); focus != "" {
-		if r, failed := firstFailing(fr); failed {
-			return explain(n, r)
-		}
-		fmt.Printf("\n%s passes its tests.%s\n", focus, watch())
-		if !mainOK {
-			fmt.Printf("Other functions of lesson %d still fail: make check %d shows them all.\n", n, n)
-		}
-		return nil
+	if r, failed := firstFailing(focused(rs)); failed {
+		return explain(n, r)
 	}
-	if mainOK {
-		fmt.Printf("\nLesson %d is done.%s\n", n, watch())
-		switch {
-		case hasStretch && stretchOK:
-			fmt.Println("The stretch exercise is done too.")
-		case hasStretch:
-			fmt.Printf("Time left? Try the stretch exercise at the end of lessons/lesson%d/lesson.go.\n", n)
-		}
-		return nil
+	fmt.Printf("\n%s passes its tests.%s\n", focus, watch())
+	main, stretchFuncs := failing(n, rs)
+	switch {
+	case len(main) > 0:
+		fmt.Printf("Other functions of lesson %d still fail: %s.\n", n, strings.Join(main, ", "))
+	case len(stretchFuncs) > 0:
+		fmt.Printf("Lesson %d is done. Time left? Try the stretch exercise: make check %s\n", n, strings.ToLower(stretchFuncs[0]))
+	default:
+		fmt.Printf("Lesson %d is done.\n", n)
 	}
-	r, _ := firstFailing(rs)
-	return explain(n, r)
+	return nil
 }
 
 // explain prints the output of a failing test, and what to do next.
@@ -271,11 +267,7 @@ func hint(n int) error {
 	}
 	r, failed := firstFailing(focused(rs))
 	if !failed {
-		if focus != "" {
-			fmt.Printf("%s passes its tests.%s\n", focus, watch())
-		} else {
-			fmt.Printf("All tests of lesson %d pass.%s\n", n, watch())
-		}
+		fmt.Printf("%s passes its tests.%s\n", focus, watch())
 		return nil
 	}
 	name := r.name

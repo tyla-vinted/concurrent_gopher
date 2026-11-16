@@ -1,5 +1,4 @@
-# The word after the command picks what to work on: a function, e.g.
-# make run ship. make check and make hint also take a lesson number, e.g. make check 3.
+# The word after the command is the function to work on, e.g. make run ship.
 COMMANDS := run check hint doctor need-what
 WHAT := $(firstword $(filter-out $(COMMANDS),$(MAKECMDGOALS)))
 
@@ -35,7 +34,7 @@ doctor:
 need-what:
 	@test -n "$(WHAT)" || (echo "Say which function, e.g.: make $(or $(firstword $(MAKECMDGOALS)),run) ship"; exit 2)
 
-# The function name or lesson number is a goal too. This rule makes it do
+# The function name is a goal too. This rule makes it do
 # nothing by itself.
 ifneq ($(WHAT),)
 $(WHAT):

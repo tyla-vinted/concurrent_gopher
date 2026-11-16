@@ -46,24 +46,31 @@ func Find(name string) (Func, bool) {
 	return Func{}, false
 }
 
-// Parse reads what the learner typed after the make command: a lesson
-// number, or a function name in any case. For a lesson, f is empty.
-func Parse(what string) (lesson int, f Func, err error) {
+// Parse finds the function that cmd ("run", "check" or "hint") works on.
+// A lesson number is not enough: every command takes a function.
+func Parse(cmd, what string) (Func, error) {
 	what = strings.TrimSpace(what)
 	if what == "" {
-		return 0, Func{}, fmt.Errorf("say which function, e.g. make run ship\n%s", List())
+		return Func{}, fmt.Errorf("say which function, e.g. make %s ship\n%s", cmd, List())
 	}
 	if n, err := strconv.Atoi(what); err == nil {
-		if n < 1 || n > 5 {
-			return 0, Func{}, fmt.Errorf("there is no lesson %d: the lessons are 1 to 5", n)
-		}
-		return n, Func{}, nil
+		return Func{}, fmt.Errorf("make %s takes a function, not lesson %d: e.g. make %s %s\n%s", cmd, n, cmd, example(n), List())
 	}
 	f, ok := Find(what)
 	if !ok {
-		return 0, Func{}, fmt.Errorf("there is no function %q in the lessons\n%s", what, List())
+		return Func{}, fmt.Errorf("there is no function %q in the lessons\n%s", what, List())
 	}
-	return f.Lesson, f, nil
+	return f, nil
+}
+
+// example names the first function of lesson n, for messages.
+func example(n int) string {
+	for _, f := range Funcs {
+		if f.Lesson == n {
+			return strings.ToLower(f.Name)
+		}
+	}
+	return "buildall"
 }
 
 // List names the functions of each lesson.
