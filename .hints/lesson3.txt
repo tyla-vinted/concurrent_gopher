@@ -1,0 +1,37 @@
+## TestNext
+select waits until one of its cases can run, and then runs that one case.
+	select {
+	case t := <-robots:
+	    return t
+	case t := <-kites:
+	    return t
+	}
+
+## TestFetch_InTime
+Fetch must return the part as soon as it comes, so wait for it in a select.
+	case p := <-supplier:
+	    return p, nil
+
+## TestFetch_TooSlow
+Fetch waits for two things now: a part, or the end of the wait. select waits for whichever comes first.
+time.After(wait) returns a channel that gets a value after wait, so <-time.After(wait) can be a case in the select. Return ErrTimeout there.
+	select {
+	case p := <-supplier:
+	    return p, nil
+	case <-time.After(wait):
+	    return Part{}, ErrTimeout
+	}
+
+## TestShip
+If the test says deadlock: Ship waits on a full truck, and nobody unloads it.
+When the send cannot happen now, default runs:
+	select {
+	case truck <- b:
+	    return true
+	default:
+	    return false
+	}
+
+## TestStretch_Fastest
+The slower suppliers send to results, but nobody receives any more after the first part. On an unbuffered channel, they wait forever: a goroutine leak.
+Give results room for every answer: make(chan Part, len(suppliers)). Then every send finishes, and every goroutine ends.

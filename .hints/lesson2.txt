@@ -1,0 +1,29 @@
+## TestProduce
+close(out) tells the receiver that no more values will come. Only the sender closes a channel.
+Put defer close(out) at the top of Produce. defer runs it when Produce returns.
+
+## TestPackAll
+A for loop with range over a channel receives one value per round. The loop ends when in is closed and empty:
+	for t := range in {
+	    ...
+	}
+In the loop, pack each toy:
+	boxes = append(boxes, pack(t))
+
+## TestLine
+On an unbuffered channel, a send waits until another goroutine receives. Line calls Produce, and Produce waits at its first send, because PackAll has not started yet.
+Start the producer in its own goroutine:
+	go Produce(orders, build, belt)
+If the test says deadlock: do TestProduce and TestPackAll pass? Line uses both.
+
+## TestLine_Buffered
+make(chan Toy) has no room. make(chan Toy, n) holds n toys: a send waits only when the belt is full.
+Make the belt with make(chan Toy, beltSize).
+
+## TestStretch_BuildLimited
+A buffered channel with room for limit items can count the benches that are taken: a send takes a bench, a receive gives it back, and a send waits while all benches are taken.
+Make the benches before the loop:
+	benches := make(chan struct{}, limit)
+In each goroutine, take a bench before build(o), and give it back when the build is done:
+	benches <- struct{}{}
+	defer func() { <-benches }()

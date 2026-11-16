@@ -1,0 +1,32 @@
+## TestBuildAll
+go f() starts f in a new goroutine, and does not wait for it. Start one goroutine for each order.
+BuildAll returns before the goroutines finish. A sync.WaitGroup waits for them: wg.Go starts and counts a goroutine, and wg.Wait waits until all are done. Each goroutine writes only its own toys[i], so nothing else is shared.
+Add import "sync":
+	var wg sync.WaitGroup
+	for i, o := range orders {
+	    wg.Go(func() {
+	        toys[i] = work(o)
+	    })
+	}
+	wg.Wait()
+
+## TestBuildAll_NoOrders
+With no orders there is nothing to build: BuildAll returns an empty slice at once, and does not wait for goroutines that never start.
+
+## TestCountKinds
+If the test says 4s: CountKinds calls your BuildAll. Make BuildAll pass first.
+Run make check countkinds and read the WARNING: DATA RACE. It names two goroutines and the line where both touch the same memory.
+BuildAll now calls the function that CountKinds gives it from 12 goroutines at the same time. counts[t.Name]++ reads the map and then writes it, and a map is not safe for that.
+Protect the map with a sync.Mutex next to counts. Keep work(o) outside the lock, so that the builds still run at the same time:
+	var mu sync.Mutex
+	...
+	t := work(o)
+	mu.Lock()
+	counts[t.Name]++
+	mu.Unlock()
+
+## TestStretch_Count
+n++ from many goroutines is a data race on one number. sync/atomic has a counter that is safe without a lock: atomic.Int64.
+var n atomic.Int64 instead of var n int, and import "sync/atomic".
+	n.Add(1)          // in each goroutine
+	return int(n.Load())  // at the end

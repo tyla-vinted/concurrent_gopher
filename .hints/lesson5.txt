@@ -1,0 +1,48 @@
+## TestPool
+Fan-out: start workers goroutines, and let all of them range over the same jobs channel. Each job goes to exactly one worker. Fan-in: all workers send their toys to one results channel, and Pool collects from it.
+Close results when all workers are done, in one more goroutine. Do not call wg.Wait() in Pool itself before collecting: nobody receives yet, so it waits forever.
+	results := make(chan Toy)
+	var wg sync.WaitGroup
+	for range workers {
+	    wg.Go(func() {
+	        for o := range jobs {
+	            results <- build(o)
+	        }
+	    })
+	}
+	go func() {
+	    wg.Wait()
+	    close(results)
+	}()
+	for t := range results { ... }
+
+## TestPoolGroup
+errgroup does what Pool did, and handles errors: g.Go starts a goroutine that returns an error, the first error ends the group's ctx, and g.Wait() waits for all and returns that error.
+Make the group, and limit it to workers goroutines at once. g.Go waits while the limit is reached, like the benches in lesson 2. Collect the toys under a sync.Mutex.
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(workers)
+	for o := range jobs {
+	    g.Go(func() error {
+	        t, err := build(ctx, o)
+	        if err != nil {
+	            return err
+	        }
+	        ... // add t to toys, under the mutex
+	        return nil
+	    })
+	}
+	err := g.Wait()
+
+## TestStretch_Throttle
+A time.Ticker sends on its channel C once every d. Wait for a tick before each order, and the orders come out at most one every d.
+Start a goroutine with defer close(out), and a ticker that you stop at the end. Wait for the tick, or for the end, then send the order in a select with ctx.Done() too.
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	for o := range in {
+	    select {
+	    case <-tick.C:
+	    case <-ctx.Done():
+	        return
+	    }
+	    ...
+	}

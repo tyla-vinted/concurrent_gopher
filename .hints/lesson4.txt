@@ -1,0 +1,31 @@
+## TestTake
+Take must return the order as soon as it is there, so wait for it in a select.
+	case o := <-orders:
+	    return o, nil
+
+## TestTake_Cancel
+Take waits for two things now: an order, or the end of ctx. select waits for whichever comes first.
+ctx.Done() returns a channel that is closed when ctx ends. A receive from a closed channel does not wait, so <-ctx.Done() can be a case in the select. Return ctx.Err() there.
+	select {
+	case o := <-orders:
+	    return o, nil
+	case <-ctx.Done():
+	    return Order{}, ctx.Err()
+	}
+
+## TestTake_Deadline
+ctx.Err() says why ctx ended: context.Canceled after a cancel, context.DeadlineExceeded after a timeout. Return it as it is.
+
+## TestShift
+If this test fails, check the loop: build each order, and append its toy.
+
+## TestShift_Timeout
+context.WithTimeout makes a context that ends by itself after a time. Make one for the shift, and build with it.
+The new ctx replaces the old one, so build gets it, and stops when the shift ends. defer cancel() frees the timer when Shift returns early: go vet warns when you forget it.
+At the top of Shift:
+	ctx, cancel := context.WithTimeout(ctx, length)
+	defer cancel()
+
+## TestShift_Cancel
+WithTimeout makes a child of the ctx that you pass in. When the parent is cancelled, the child ends too.
+If the shift does not stop at 500ms: does build get ctx?
